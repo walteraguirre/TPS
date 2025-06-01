@@ -1,0 +1,27 @@
+## Cálculo y visualización de log-probabilidades a posteriori por instrumento
+
+En este bloque de código se analiza una señal de guitarra dividiéndola en frames y evaluando, para cada uno, la probabilidad de que haya sido generado por cada uno de los modelos entrenados de instrumentos. El procedimiento se realiza de la siguiente manera:
+
+1. **Extracción de frames**:
+   Se cargan los vectores de características (`X_frames`) correspondientes a los frames de la señal de guitarra, previamente procesados.
+
+2. **Cálculo de log-verosimilitudes**:
+   Para cada instrumento del conjunto `instruments`, se calcula la log-verosimilitud de cada frame usando su modelo GMM (Gaussian Mixture Model). Esto da como resultado una matriz `log_pxj` de tamaño `(n_instruments, n_frames)`.
+
+3. **Cálculo de probabilidades a priori \( P(j) \)**:
+   A partir de los datos de entrenamiento (`X_train`), se calcula la proporción de muestras correspondientes a cada instrumento. Esto permite obtener una distribución de probabilidad a priori para cada clase (instrumento).
+
+4. **Cálculo de probabilidades a posteriori \( P(j \mid x_t) \)**:
+   Utilizando la regla de Bayes en logaritmos:
+   \[
+   \log P(j \mid x_t) \propto \log P(x_t \mid j) + \log P(j)
+   \]
+   Se suman las log-verosimilitudes y los log-priors para cada frame, y se aplica la función `softmax` a lo largo del eje temporal para obtener las probabilidades a posteriori normalizadas.
+
+5. **Conversión de frames a tiempo**:
+   Se calcula el eje temporal en segundos usando la frecuencia de muestreo (`sr = 44100 Hz`) y el `hop_length = 32` (cantidad de muestras entre frames). Esto permite ubicar cada frame en su posición temporal real dentro de la señal.
+
+6. **Visualización**:
+   Finalmente, se grafica la evolución temporal de las log-probabilidades a posteriori para cada instrumento. En el eje x se representa el tiempo (en segundos), y en el eje y se muestra \( \log P(j \mid x_t) \), es decir, la confianza (en escala logarítmica) de cada modelo en que el frame \( x_t \) pertenece al instrumento \( j \).
+
+Este análisis permite observar, a lo largo del tiempo, cuál instrumento es más probable según los modelos entrenados, y cómo varía esa probabilidad frame a frame.
