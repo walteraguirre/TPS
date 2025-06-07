@@ -1,27 +1,31 @@
-## Cálculo y visualización de log-probabilidades a posteriori por instrumento
+### Combinación de Predicciones del Modelo con la Calificación Promedio de Películas
 
-En este bloque de código se analiza una señal de guitarra dividiéndola en frames y evaluando, para cada uno, la probabilidad de que haya sido generado por cada uno de los modelos entrenados de instrumentos. El procedimiento se realiza de la siguiente manera:
+Luego de entrenar el modelo de filtrado colaborativo mediante factorización matricial, se realiza una etapa de postprocesamiento para refinar las predicciones. Esta fase consiste en combinar la salida personalizada del modelo con la calificación promedio histórica de cada película, generando una predicción más equilibrada y robusta.
 
-1. **Extracción de frames**:
-   Se cargan los vectores de características (`X_frames`) correspondientes a los frames de la señal de guitarra, previamente procesados.
+El procedimiento consta de los siguientes pasos:
 
-2. **Cálculo de log-verosimilitudes**:
-   Para cada instrumento del conjunto `instruments`, se calcula la log-verosimilitud de cada frame usando su modelo GMM (Gaussian Mixture Model). Esto da como resultado una matriz `log_pxj` de tamaño `(n_instruments, n_frames)`.
-
-3. **Cálculo de probabilidades a priori $ P(j) $**:
-   A partir de los datos de entrenamiento (`X_train`), se calcula la proporción de muestras correspondientes a cada instrumento. Esto permite obtener una distribución de probabilidad a priori para cada clase (instrumento).
-
-4. **Cálculo de probabilidades a posteriori $ P(j \mid x_t) $**:
-   Utilizando la regla de Bayes en logaritmos:
+1. **Cálculo de la predicción inicial (`R_hat`):**  
+   Se genera la matriz de predicciones de calificaciones multiplicando los embeddings de ítems (`P`) por los embeddings de usuarios (`Q^T`):  
    $$
-   \log P(j \mid x_t) \propto \log P(x_t \mid j) + \log P(j)
+   \hat{R} = P Q^\top
    $$
-   Se suman las log-verosimilitudes y los log-priors para cada frame, y se aplica la función `softmax` a lo largo del eje temporal para obtener las probabilidades a posteriori normalizadas.
+   donde $ \hat{R}_{ij} $ representa la predicción del modelo para el ítem $ i $ y el usuario $ j $.
 
-5. **Conversión de frames a tiempo**:
-   Se calcula el eje temporal en segundos usando la frecuencia de muestreo (`sr = 44100 Hz`) y el `hop_length = 32` (cantidad de muestras entre frames). Esto permite ubicar cada frame en su posición temporal real dentro de la señal.
+2. **Cálculo de la media por película ($ \mu_i $):**  
+   Para cada ítem (película), se calcula su calificación promedio considerando únicamente las entradas observadas en la matriz original de ratings $ Y $. Es decir, para cada película $ i $, se tiene:  
+   $$
+   \mu_i = \frac{ \sum_{j: Y_{ij} \neq 0} Y_{ij} }{ \sum_{j} \mathbb{1}[Y_{ij} \neq 0] }
+   $$
+   donde $ \mathbb{1}[\cdot] $ es la función indicador que vale 1 si el usuario $ j $ calificó la película $ i $, y 0 en caso contrario.
 
-6. **Visualización**:
-   Finalmente, se grafica la evolución temporal de las log-probabilidades a posteriori para cada instrumento. En el eje x se representa el tiempo (en segundos), y en el eje y se muestra $ \log P(j \mid x_t) $, es decir, la confianza (en escala logarítmica) de cada modelo en que el frame $ x_t $ pertenece al instrumento $ j $.
+3. **Expansión de la media ($ \mu $):**  
+   Las medias por película se expanden a una matriz del mismo tamaño que $ \hat{R} $, replicando cada $ \mu_i $ a lo largo de todas las columnas (usuarios). Esto permite combinarlas fácilmente con la matriz de predicciones.
 
-Este análisis permite observar, a lo largo del tiempo, cuál instrumento es más probable según los modelos entrenados, y cómo varía esa probabilidad frame a frame.
+4. **Combinación de estimaciones (`R_final`):**  
+   Finalmente, se obtiene una predicción híbrida promediando en partes iguales la salida del modelo y la media por película:  
+   $$
+   R_{\text{final}} = \frac{1}{2} \hat{R} + \frac{1}{2} \mu
+   $$
+   Esto permite suavizar las predicciones del modelo puro, especialmente cuando existen pocos datos o cuando el modelo presenta cierto sobreajuste.
+
+Este enfoque de combinación es especialmente útil en sistemas de recomendación reales, donde las matrices de calificación suelen estar muy incompletas. Al incorporar una componente basada en popularidad (la media por ítem), se mejora la estabilidad de las predicciones y se compensa la incertidumbre en las regiones con menor densidad de datos.
