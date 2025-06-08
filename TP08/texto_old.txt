@@ -1,31 +1,100 @@
-### Combinación de Predicciones del Modelo con la Calificación Promedio de Películas
+## Entrenamiento del sistema de recomendación con una clase `FiltroColaborativo`
 
-Luego de entrenar el modelo de filtrado colaborativo mediante factorización matricial, se realiza una etapa de postprocesamiento para refinar las predicciones. Esta fase consiste en combinar la salida personalizada del modelo con la calificación promedio histórica de cada película, generando una predicción más equilibrada y robusta.
+Se implementó una clase llamada `FiltroColaborativo`, que encapsula todo el comportamiento necesario para entrenar y utilizar un sistema de recomendación basado en **filtrado colaborativo** mediante **factorización matricial** con **descenso por gradiente y regularización L2**.
 
-El procedimiento consta de los siguientes pasos:
+La idea central es aproximar la matriz de calificaciones \( Y \) como el producto de dos matrices latentes de menor dimensión:
 
-1. **Cálculo de la predicción inicial (`R_hat`):**  
-   Se genera la matriz de predicciones de calificaciones multiplicando los embeddings de ítems (`P`) por los embeddings de usuarios (`Q^T`):  
-   $$
-   \hat{R} = P Q^\top
-   $$
-   donde \( \hat{R}_{ij} \) representa la predicción del modelo para el ítem \( i \) y el usuario \( j \).
+\[
+Y \approx X \Theta^\top
+\]
 
-2. **Cálculo de la media por película (\( \mu_i \)):**  
-   Para cada ítem (película), se calcula su calificación promedio considerando únicamente las entradas observadas en la matriz original de ratings \( Y \). Es decir, para cada película \( i \), se tiene:  
-   $$
-   \mu_i = \frac{ \sum_{j: Y_{ij} \neq 0} Y_{ij} }{ \sum_{j} \mathbb{1}[Y_{ij} \neq 0] }
-   $$
-   donde \( \mathbb{1}[\cdot] \) es la función indicador que vale 1 si el usuario \( j \) calificó la película \( i \), y 0 en caso contrario.
+donde:
+- \( X \in \mathbb{R}^{n_{\text{items}} \times k} \) es la matriz de embeddings de ítems (películas).
+- \( \Theta \in \mathbb{R}^{n_{\text{usuarios}} \times k} \) es la matriz de embeddings de usuarios.
+- \( k \) es la dimensión del espacio latente.
 
-3. **Expansión de la media (\( \mu \)):**  
-   Las medias por película se expanden a una matriz del mismo tamaño que \( \hat{R} \), replicando cada \( \mu_i \) a lo largo de todas las columnas (usuarios). Esto permite combinarlas fácilmente con la matriz de predicciones.
+---
 
-4. **Combinación de estimaciones (`R_final`):**  
-   Finalmente, se obtiene una predicción híbrida promediando en partes iguales la salida del modelo y la media por película:  
-   $$
-   R_{\text{final}} = \frac{1}{2} \hat{R} + \frac{1}{2} \mu
-   $$
-   Esto permite suavizar las predicciones del modelo puro, especialmente cuando existen pocos datos o cuando el modelo presenta cierto sobreajuste.
+### 🧱 Estructura de la clase
 
-Este enfoque de combinación es especialmente útil en sistemas de recomendación reales, donde las matrices de calificación suelen estar muy incompletas. Al incorporar una componente basada en popularidad (la media por ítem), se mejora la estabilidad de las predicciones y se compensa la incertidumbre en las regiones con menor densidad de datos.
+La clase está compuesta por tres métodos principales:
+
+### 1. `__init__(...)`  
+Inicializa el modelo con los siguientes hiperparámetros:
+- `k`: dimensión del espacio latente (embedding size).
+- `lambda_reg`: coeficiente de regularización L2.
+- `lr`: tasa de aprendizaje.
+- `num_iter`: número de iteraciones de entrenamiento.
+
+Además, define como atributos internos:
+- `X`: matriz de embeddings de ítems (inicializada en el entrenamiento).
+- `Theta`: matriz de embeddings de usuarios.
+- `errores`: lista con la evolución del error a lo largo del entrenamiento.
+
+---
+
+### 2. `entrenar(Y)`  
+Este método realiza el entrenamiento del modelo, recibiendo como entrada una matriz `Y` de calificaciones (donde los ceros representan valores ausentes). El proceso se desarrolla en varias etapas:
+
+#### Etapas del entrenamiento:
+
+- **Inicialización aleatoria**  
+  Se inicializan las matrices `X` y `Theta` con valores aleatorios pequeños provenientes de una distribución normal.
+
+- **Máscara de observación**  
+  Se genera una máscara booleana `mask` que indica dónde hay calificaciones reales en `Y`.
+
+- **Bucle de optimización**  
+  Durante `num_iter` iteraciones:
+  
+  - Se calcula la matriz de predicciones:
+    \[
+    \hat{Y} = X \Theta^\top
+    \]
+  
+  - Se calcula el **error observado**, aplicando la máscara para ignorar entradas ausentes:
+    \[
+    error = (Y - \hat{Y}) \odot mask
+    \]
+
+  - Se computan los **gradientes** del error regularizado respecto a `X` y `Theta`.
+
+  - Se actualizan los parámetros usando descenso por gradiente:
+    \[
+    X \leftarrow X - \eta \cdot \nabla_X
+    \quad\text{y}\quad
+    \Theta \leftarrow \Theta - \eta \cdot \nabla_\Theta
+    \]
+
+  - Se evalúa el **riesgo regularizado empírico**:
+    \[
+    J = \frac{1}{2} \sum_{i,j: y_{ij}>0} (y_{ij} - \theta_j^\top x_i)^2 + \frac{\lambda}{2} \left( \|X\|^2 + \|\Theta\|^2 \right)
+    \]
+
+  - Este valor se guarda en `self.errores` para monitorear la convergencia del algoritmo.
+
+---
+
+### 3. `predecir(usuario_idx=None)`  
+Devuelve la matriz completa de predicciones \( \hat{Y} = X \Theta^\top \), o solo la columna correspondiente a un usuario si se especifica su índice.
+
+Esto permite recuperar las predicciones personalizadas para un usuario y ordenarlas para recomendarle las películas mejor valoradas que aún no haya visto.
+
+---
+
+### 4. `graficar_error()`  
+Este método grafica la evolución del riesgo regularizado a lo largo de las iteraciones de entrenamiento. Es útil para verificar si el modelo converge y ajustar hiperparámetros en caso contrario.
+
+---
+
+### 📌 Ejemplo de uso
+
+Una vez cargada y preprocesada la matriz de calificaciones desde el `DataFrame`, se entrena el modelo de la siguiente forma:
+
+```python
+Y = df_actualizado.drop(columns=["Name"]).values.astype(float)
+
+modelo_filtro = FiltroColaborativo(k=10, lambda_reg=10, lr=1e-3, num_iter=2000)
+modelo_filtro.entrenar(Y)
+
+modelo_filtro.graficar_error()
