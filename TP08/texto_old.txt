@@ -1,100 +1,131 @@
-## Entrenamiento del sistema de recomendación con una clase `FiltroColaborativo`
+# 🔍 Clasificación con **Multinomial Naive Bayes**
 
-Se implementó una clase llamada `FiltroColaborativo`, que encapsula todo el comportamiento necesario para entrenar y utilizar un sistema de recomendación basado en **filtrado colaborativo** mediante **factorización matricial** con **descenso por gradiente y regularización L2**.
+El clasificador **Multinomial Naive Bayes (MNB)** es un modelo probabilístico que se basa en la fórmula de Bayes, bajo el supuesto de independencia condicional entre características dado el valor de la clase.
 
-La idea central es aproximar la matriz de calificaciones \( Y \) como el producto de dos matrices latentes de menor dimensión:
+Este modelo es especialmente adecuado para problemas con datos representados como **conteos discretos**, como el caso del modelado de texto con bolsas de palabras (Bag-of-Words).
+
+El objetivo es modelar:
 
 \[
-Y \approx X \Theta^\top
+p(y \mid \mathbf{x}) \propto p(y) \cdot \prod_{j=1}^{V} \theta^{(y)}_j{}^{x_j}
 \]
 
 donde:
-- \( X \in \mathbb{R}^{n_{\text{items}} \times k} \) es la matriz de embeddings de ítems (películas).
-- \( \Theta \in \mathbb{R}^{n_{\text{usuarios}} \times k} \) es la matriz de embeddings de usuarios.
-- \( k \) es la dimensión del espacio latente.
+- \( y \) es una clase posible.
+- \( \mathbf{x} = (x_1, \dots, x_V) \) es el vector de conteos de términos (como en una bolsa de palabras).
+- \( \theta^{(y)}_j \) es la probabilidad de la palabra \( j \) dado que el documento es de clase \( y \).
 
 ---
 
-### 🧱 Estructura de la clase
+## 🎓 Fundamento teórico
 
-La clase está compuesta por tres métodos principales:
+Según las filminas, el modelo asume que los datos se generan como:
 
-### 1. `__init__(...)`  
-Inicializa el modelo con los siguientes hiperparámetros:
-- `k`: dimensión del espacio latente (embedding size).
-- `lambda_reg`: coeficiente de regularización L2.
-- `lr`: tasa de aprendizaje.
-- `num_iter`: número de iteraciones de entrenamiento.
+\[
+\mathbf{N} \mid Y = k \sim \text{Multinomial}(d^{(k)}, \theta^{(k)}),
+\]
 
-Además, define como atributos internos:
-- `X`: matriz de embeddings de ítems (inicializada en el entrenamiento).
-- `Theta`: matriz de embeddings de usuarios.
-- `errores`: lista con la evolución del error a lo largo del entrenamiento.
+donde:
+- \( \mathbf{N} = (N_1, \dots, N_V) \) es el vector de conteos para un documento.
+- \( \theta^{(k)} \sim \text{Dir}(\alpha) \) es una distribución Dirichlet que regulariza las probabilidades de palabras.
+- \( d^{(k)} \) es la suma de ocurrencias en todos los documentos de clase \( k \).
+
+El estimador bayesiano para los parámetros es:
+
+\[
+\hat{\theta}^{(k)}_j = \frac{N^{(k)}_j + \alpha}{\sum_m N^{(k)}_m + V \cdot \alpha}
+\]
+
+Y la inferencia se realiza mediante:
+
+\[
+\log p(y \mid \mathbf{x}) \propto \log p(y) + \sum_j x_j \cdot \log \theta^{(y)}_j
+\]
 
 ---
 
-### 2. `entrenar(Y)`  
-Este método realiza el entrenamiento del modelo, recibiendo como entrada una matriz `Y` de calificaciones (donde los ceros representan valores ausentes). El proceso se desarrolla en varias etapas:
+## ⚙️ Clase `MNB`
 
-#### Etapas del entrenamiento:
+Se implementó una clase `MNB` que encapsula el entrenamiento y predicción con el clasificador Multinomial Naive Bayes, utilizando suavizado de Laplace (Dirichlet uniforme).
 
-- **Inicialización aleatoria**  
-  Se inicializan las matrices `X` y `Theta` con valores aleatorios pequeños provenientes de una distribución normal.
+### **Inicialización**
 
-- **Máscara de observación**  
-  Se genera una máscara booleana `mask` que indica dónde hay calificaciones reales en `Y`.
+Para inicializar el modelo se utiliza:
 
-- **Bucle de optimización**  
-  Durante `num_iter` iteraciones:
+**MNB(alpha=1.0)**
+
+donde `alpha` es el parámetro de suavizado que regulariza las probabilidades \( \theta^{(y)}_j \).
+
+---
+
+### `fit(X, y)`
+
+Entrena el modelo con:
+- `X`: matriz de conteos (documentos x palabras).
+- `y`: vector de etiquetas (una por documento).
+
+Durante el entrenamiento:
+- Se estima la **probabilidad a priori** de cada clase:
   
-  - Se calcula la matriz de predicciones:
-    \[
-    \hat{Y} = X \Theta^\top
-    \]
-  
-  - Se calcula el **error observado**, aplicando la máscara para ignorar entradas ausentes:
-    \[
-    error = (Y - \hat{Y}) \odot mask
-    \]
+  \[
+  \log p(y = k) = \log \frac{\#\text{docs con clase } k}{\text{total de docs}}
+  \]
 
-  - Se computan los **gradientes** del error regularizado respecto a `X` y `Theta`.
+- Se acumulan los conteos totales por clase y se estima:
 
-  - Se actualizan los parámetros usando descenso por gradiente:
-    \[
-    X \leftarrow X - \eta \cdot \nabla_X
-    \quad\text{y}\quad
-    \Theta \leftarrow \Theta - \eta \cdot \nabla_\Theta
-    \]
-
-  - Se evalúa el **riesgo regularizado empírico**:
-    \[
-    J = \frac{1}{2} \sum_{i,j: y_{ij}>0} (y_{ij} - \theta_j^\top x_i)^2 + \frac{\lambda}{2} \left( \|X\|^2 + \|\Theta\|^2 \right)
-    \]
-
-  - Este valor se guarda en `self.errores` para monitorear la convergencia del algoritmo.
+  \[
+  \log \theta^{(k)}_j = \log \left( \frac{\text{ocurrencias de la palabra } j \text{ en clase } k + \alpha}{\text{total de palabras en clase } k + V \cdot \alpha} \right)
+  \]
 
 ---
 
-### 3. `predecir(usuario_idx=None)`  
-Devuelve la matriz completa de predicciones \( \hat{Y} = X \Theta^\top \), o solo la columna correspondiente a un usuario si se especifica su índice.
+### `predict(X)`
 
-Esto permite recuperar las predicciones personalizadas para un usuario y ordenarlas para recomendarle las películas mejor valoradas que aún no haya visto.
+Devuelve las clases predichas para cada documento (fila de `X`), eligiendo:
 
----
-
-### 4. `graficar_error()`  
-Este método grafica la evolución del riesgo regularizado a lo largo de las iteraciones de entrenamiento. Es útil para verificar si el modelo converge y ajustar hiperparámetros en caso contrario.
+\[
+\hat{y} = \arg\max_y \left[ \log p(y) + \sum_j x_j \log \theta^{(y)}_j \right]
+\]
 
 ---
 
-### 📌 Ejemplo de uso
+### `predict_proba(X)`
 
-Una vez cargada y preprocesada la matriz de calificaciones desde el `DataFrame`, se entrena el modelo de la siguiente forma:
+Devuelve la **distribución de probabilidad** sobre las clases para cada documento:
 
-```python
-Y = df_actualizado.drop(columns=["Name"]).values.astype(float)
+\[
+p(y \mid \mathbf{x}) = \frac{e^{\text{score}_y}}{\sum_{y'} e^{\text{score}_{y'}}}
+\]
 
-modelo_filtro = FiltroColaborativo(k=10, lambda_reg=10, lr=1e-3, num_iter=2000)
-modelo_filtro.entrenar(Y)
+donde `score_y` es el logaritmo de la probabilidad no normalizada.
 
-modelo_filtro.graficar_error()
+---
+
+### `score(X, y)`
+
+Devuelve el **accuracy** sobre el conjunto de evaluación:
+
+\[
+\frac{\# \text{predicciones correctas}}{\# \text{total de ejemplos}}
+\]
+
+---
+
+### `macro_f1(X, y)`
+
+Devuelve el **F1 macro** promedio entre clases, penalizando la clase desbalanceada. Se usa:
+
+\[
+\text{Macro-F1} = \frac{1}{K} \sum_{k=1}^K \text{F1-score}_k
+\]
+
+---
+
+## 📊 Aplicación típica
+
+Este modelo es comúnmente utilizado en:
+- Clasificación de texto (spam vs. ham, noticias, opiniones).
+- Análisis de sentimientos.
+- Detección de temas.
+
+Gracias a su simplicidad y efectividad, MNB es un gran modelo base para tareas donde los datos son representaciones de **frecuencias de tokens discretos**.
